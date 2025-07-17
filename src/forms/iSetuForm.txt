@@ -1,0 +1,626 @@
+import React, { useState, useEffect } from "react";
+import {
+  ArrowLeft,
+  FileText,
+  User,
+  MapPin,
+  Briefcase,
+  Users,
+  Download,
+  CheckCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import districtsData from "../data/districts.json";
+import api from "@/lib/axios";
+import Layout from "@/components/home/Layout";
+
+
+// 👉 TypeScript interfaces
+interface FormData {
+  name: string;
+  age: string;
+  district: string;
+  sub: string;
+  village: string;
+  beneficiaryType: string;
+  childName: string;
+  valueChild: string;
+  caste: string;
+  Religion: string;
+}
+
+
+interface Checkboxes {
+  casteCheckbox: boolean;
+  incomeCheckbox: boolean;
+  Residency: boolean;
+  vivah: boolean;
+  alp: boolean;
+  farmer: boolean;
+  vanshavali: boolean;
+  nishar: boolean;
+  formA: boolean;
+  formB: boolean;
+  bhumihin: boolean;
+  non: boolean;
+}
+
+
+const SetuForm: React.FC = () => {
+  const { toast } = useToast();
+
+  // 📦 State for form data
+  
+
+  const [form, setForm] = useState<FormData>({
+    name: "",
+    age: "",
+    district: "",
+    sub: "",
+    village: "",
+    beneficiaryType: "",
+    childName: "स्वत:",
+    valueChild: "",
+    caste: "",
+    Religion: "",
+  });
+
+  
+
+  // 📦 State for checkbox-based document selection
+  const [checkboxes, setCheckboxes] = useState<Checkboxes>({
+    casteCheckbox: false,
+    incomeCheckbox: false,
+    Residency: false,
+    vivah: false,
+    alp: false,
+    farmer: false,
+    vanshavali: false,
+    nishar: false,
+    formA: false,
+    formB: false,
+    bhumihin: false,
+    non: false,
+  });
+
+  // 📦 State for taluka/village dropdowns
+  const [talukaList, setTalukaList] = useState<any[]>([]);
+  const [villageList, setVillageList] = useState<string[]>([]);
+
+  // 📦 State for success/error UI
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+  const [submittedDocuments, setSubmittedDocuments] = useState<string[]>([]);
+  const [queryParams, setQueryParams] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 🔁 On mount: Set default district, taluka, village
+  useEffect(() => {
+    if (districtsData.length > 0) {
+      const defaultDistrict = districtsData[0];
+      const defaultTaluka = defaultDistrict.subdistricts[0];
+      const defaultVillage = defaultTaluka.villages[0];
+
+      setForm((prev) => ({
+        ...prev,
+        district: defaultDistrict.name,
+        sub: defaultTaluka.name,
+        village: defaultVillage,
+      }));
+
+      setTalukaList(defaultDistrict.subdistricts);
+      setVillageList(defaultTaluka.villages);
+    }
+  }, []);
+
+  // 🔄 District change handler
+  const handleDistrictChange = (selectedDistrict: string) => {
+    const district = districtsData.find((d) => d.name === selectedDistrict);
+    const talukas = district?.subdistricts || [];
+    const villages = talukas[0]?.villages || [];
+
+    setForm((prev) => ({
+      ...prev,
+      district: selectedDistrict,
+      sub: talukas[0]?.name || "",
+      village: villages[0] || "",
+    }));
+
+    setTalukaList(talukas);
+    setVillageList(villages);
+  };
+
+  // 🔄 Taluka change handler
+  const handleTalukaChange = (selectedTaluka: string) => {
+    const taluka = talukaList.find((t: any) => t.name === selectedTaluka);
+    const villages = taluka?.villages || [];
+
+    setForm((prev) => ({
+      ...prev,
+      sub: selectedTaluka,
+      village: villages[0] || "",
+    }));
+
+    setVillageList(villages);
+  };
+
+  // 🔄 Village change handler
+  const handleVillageChange = (selectedVillage: string) => {
+    setForm((prev) => ({ ...prev, village: selectedVillage }));
+  };
+
+  // 🔄 Input handler
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // 🔄 Select change handler
+  const handleSelectChange = (name: string, value: string) => {
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // 🔄 Checkbox change handler
+  const handleCheckboxChange = (id: string, checked: boolean) => {
+    setCheckboxes((prev) => ({ ...prev, [id]: checked }));
+  };
+
+  // ⬅️ Go back
+  const handleBack = () => {
+    window.history.back();
+  };
+
+  // ✅ Submit form
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      // 🔐 Basic validation
+      const required = ["name", "age", "village", "sub", "district", "beneficiaryType"];
+      for (let key of required) {
+        if (!form[key as keyof typeof form]) {
+          setError("सर्व फील्ड अनिवार्य आहेत!");
+          return;
+        }
+      }
+
+      // 🔐 Caste check if caste document selected
+      if (checkboxes.casteCheckbox && (!form.caste || !form.Religion)) {
+        setError("कृपया जात आणि धर्म लिहा!");
+        return;
+      }
+
+      // 🔁 Format child name if "मुलगा/मुलगी"
+      let finalChild = form.childName;
+      if (["मुलगा", "मुलगी"].includes(form.childName) && form.valueChild) {
+        finalChild = `${form.childName} - ${form.valueChild}`;
+      }
+
+      // 🧾 Get selected documents from checkboxes
+      const selectedDocuments = Object.entries(checkboxes)
+        .filter(([_, value]) => value)
+        .map(([key]) => key);
+
+      if (selectedDocuments.length === 0) {
+        setError("कृपया किमान एक दस्तऐवज निवडा!");
+        return;
+      }
+
+      const dataToSend = {
+        ...form,
+        childName: finalChild,
+        selectedDocuments,
+      };
+
+      // 📡 Simulate API call (replace with actual API later)
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // await api.post("/api/setu-form", dataToSend);
+
+      // ✅ Show success
+      setSuccess("✅ फॉर्म यशस्वीरित्या सबमिट झाला आहे!");
+      setError("");
+
+      // 🔗 Prepare download links
+      const queryObj: Record<string, string> = {
+        ...form,
+        childName: finalChild,
+        selectedDocuments: selectedDocuments.join(","),
+      };
+      const query = new URLSearchParams(queryObj).toString();
+
+      setSubmittedDocuments(selectedDocuments);
+      setQueryParams(query);
+
+      toast({
+        title: "फॉर्म सबमिट झाला!",
+        description: "तुमचा फॉर्म यशस्वीरित्या सबमिट झाला आहे.",
+      });
+
+      // 🔄 Reset form
+      setForm({
+        name: "",
+        age: "",
+        district: "",
+        sub: "",
+        village: "",
+        beneficiaryType: "",
+        childName: "स्वत:",
+        valueChild: "",
+        caste: "",
+        Religion: "",
+      });
+
+      setCheckboxes({
+        casteCheckbox: false,
+        incomeCheckbox: false,
+        Residency: false,
+        vivah: false,
+        alp: false,
+        farmer: false,
+        vanshavali: false,
+        nishar: false,
+        formA: false,
+        formB: false,
+        bhumihin: false,
+        non: false,
+      });
+
+      // 🕒 Auto-clear messages
+      setTimeout(() => {
+        setSuccess("");
+        setSubmittedDocuments([]);
+        setQueryParams("");
+      }, 10000);
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || "Unknown error";
+      setError(message);
+      setSuccess("");
+      setTimeout(() => setError(""), 4000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 📄 Document selection UI
+  const documentOptions = [
+    { id: "casteCheckbox", label: "जात प्रमाणपत्र", icon: User, color: "text-blue-600" },
+    { id: "Residency", label: "रहिवासी प्रमाणपत्र", icon: MapPin, color: "text-green-600" },
+    { id: "incomeCheckbox", label: "उत्पन्न प्रमाणपत्र", icon: Briefcase, color: "text-orange-600" },
+    { id: "vivah", label: "विवाह शपथपत्र", icon: Users, color: "text-pink-600" },
+    { id: "alp", label: "अल्पभूधारक शपथपत्र", icon: FileText, color: "text-purple-600" },
+    { id: "farmer", label: "शेतकरी शपथपत्र", icon: FileText, color: "text-emerald-600" },
+    { id: "vanshavali", label: "वंशावली", icon: FileText, color: "text-indigo-600" },
+    { id: "nishar", label: "निरक्षर प्रमाणपत्र", icon: FileText, color: "text-gray-600" },
+    { id: "formA", label: "फॉर्म A", icon: FileText, color: "text-cyan-600" },
+    { id: "formB", label: "फॉर्म B", icon: FileText, color: "text-teal-600" },
+    { id: "bhumihin", label: "भूमिहीन प्रमाणपत्र", icon: FileText, color: "text-rose-600" },
+    { id: "non", label: "नॉन क्रिमीलेयर", icon: FileText, color: "text-amber-600" },
+  ];
+
+  return (
+  <Layout>
+    <div className="w-full h-screen overflow-y-auto p-4 bg-gradient-subtle">
+     
+        
+    
+    <div className="w-screen h-screen overflow-y-auto bg-gradient-subtle p-4">
+  <div className="w-full h-full flex flex-col items-center justify-start">
+        {/* Header with Back Button */}
+        <div className="flex items-center gap-4 mb-8">
+                    
+
+        <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+          <CardHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+            <CardTitle className="text-center text-xl font-semibold flex items-center justify-center gap-2">
+              <FileText className="h-6 w-6" />
+              📝 प्रमाणपत्राबाबत स्वयं घोषणापत्र
+            </CardTitle>
+          </CardHeader>
+
+          {/* Success Message with Document Links */}
+          {success && submittedDocuments.length > 0 && (
+            <div className="m-6 p-6 bg-success/10 border border-success/20 rounded-lg">
+              <div className="text-center text-success font-semibold mb-4 flex items-center justify-center gap-2">
+                <CheckCircle className="h-5 w-5" />
+                {success}
+              </div>
+              <div className="space-y-4">
+                <h2 className="text-center text-lg font-semibold text-success">📝 डाउनलोड करण्यासाठी दस्तऐवज:</h2>
+                <div className="flex flex-wrap justify-center gap-4">
+                  {submittedDocuments.map((id) => {
+                    const option = documentOptions.find(opt => opt.id === id);
+                    const label = option?.label || id;
+
+                    return (
+                      <Button
+                        key={id}
+                        variant="outline"
+                        className="bg-card border-success/30 text-success hover:bg-success/10 gap-2"
+                        onClick={() => {
+                          toast({
+                            title: "दस्तऐवज डाउनलोड",
+                            description: `${label} डाउनलोड होत आहे...`,
+                          });
+                        }}
+                      >
+                        <Download className="h-4 w-4" />
+                        {label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="m-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+              <div className="text-destructive font-semibold flex items-center gap-2">
+                <span className="text-lg">⚠️</span>
+                त्रुटी: {error}
+              </div>
+            </div>
+          )}
+    
+
+          <CardContent className="p-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Personal Information Section */}
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    नाव *
+                  </Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    value={form.name}
+                    onChange={handleInputChange}
+                    className="transition-all duration-200 focus:shadow-md"
+                    placeholder="तुमचे पूर्ण नाव लिहा"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="age" className="text-sm font-semibold text-foreground">
+                    वय *
+                  </Label>
+                  <Input
+                    id="age"
+                    name="age"
+                    type="number"
+                    value={form.age}
+                    onChange={handleInputChange}
+                    className="transition-all duration-200 focus:shadow-md"
+                    placeholder="तुमचे वय लिहा"
+                  />
+                </div>
+              </div>
+
+              {/* Location Section */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <MapPin className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-semibold text-foreground">स्थान माहिती</h3>
+                </div>
+                
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-foreground">जिल्हा *</Label>
+                    <Select value={form.district} onValueChange={handleDistrictChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="जिल्हा निवडा" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {districtsData.map((d, i) => (
+                          <SelectItem key={i} value={d.name}>{d.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-foreground">तालुका *</Label>
+                    <Select value={form.sub} onValueChange={handleTalukaChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="तालुका निवडा" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {talukaList.map((t: any, i) => (
+                          <SelectItem key={i} value={t.name}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-foreground">गाव *</Label>
+                    <Select value={form.village} onValueChange={handleVillageChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="गाव निवडा" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {villageList.map((v, i) => (
+                          <SelectItem key={i} value={v}>{v}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Occupation & Beneficiary Section */}
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 text-primary" />
+                    व्यवसाय *
+                  </Label>
+                  <Select value={form.beneficiaryType} onValueChange={(value) => handleSelectChange("beneficiaryType", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="व्यवसाय निवडा" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="विद्यार्थी">विद्यार्थी</SelectItem>
+                      <SelectItem value="शेतकरी">शेतकरी</SelectItem>
+                      <SelectItem value="कामगार">कामगार</SelectItem>
+                      <SelectItem value="मोलमजूरी">मोलमजूरी</SelectItem>
+                      <SelectItem value="उद्योग">उद्योग</SelectItem>
+                      <SelectItem value="गृहिणी">गृहिणी</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Users className="h-4 w-4 text-primary" />
+                    लाभार्थी
+                  </Label>
+                  <Select value={form.childName} onValueChange={(value) => handleSelectChange("childName", value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="स्वत:">स्वत:</SelectItem>
+                      <SelectItem value="मुलगा">मुलगा</SelectItem>
+                      <SelectItem value="मुलगी">मुलगी</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Child Name Field (Conditional) */}
+              {["मुलगा", "मुलगी"].includes(form.childName) && (
+                <div className="space-y-2">
+                  <Label htmlFor="valueChild" className="text-sm font-semibold text-foreground">
+                    लाभार्थी चे नाव *
+                  </Label>
+                  <Input
+                    id="valueChild"
+                    name="valueChild"
+                    value={form.valueChild}
+                    onChange={handleInputChange}
+                    className="transition-all duration-200 focus:shadow-md"
+                    placeholder="लाभार्थी चे पूर्ण नाव लिहा"
+                  />
+                </div>
+              )}
+
+              {/* Document Selection */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  आवश्यक कागदपत्रे निवडा
+                </h3>
+                
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {documentOptions.map(({ id, label, icon: Icon, color }) => (
+                    <div key={id} className="flex items-center space-x-3 p-4 rounded-lg border border-border hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 group">
+                      <Checkbox
+                        id={id}
+                        checked={checkboxes[id as keyof typeof checkboxes]}
+                        onCheckedChange={(checked) => handleCheckboxChange(id, !!checked)}
+                        className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                      />
+                      <Label
+                        htmlFor={id}
+                        className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer group-hover:text-primary transition-colors"
+                      >
+                        <Icon className={`h-4 w-4 ${color}`} />
+                        {label}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Conditional Caste and Religion Fields */}
+              {checkboxes.casteCheckbox && (
+                <div className="grid md:grid-cols-2 gap-6 p-4 bg-primary/5 rounded-lg border border-primary/20">
+                  <div className="space-y-2">
+                    <Label htmlFor="caste" className="text-sm font-semibold text-foreground">
+                      जात *
+                    </Label>
+                    <Input
+                      id="caste"
+                      name="caste"
+                      value={form.caste}
+                      onChange={handleInputChange}
+                      className="transition-all duration-200 focus:shadow-md"
+                      placeholder="जात लिहा"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <User className="h-4 w-4 text-primary" />
+                      धर्म *
+                    </Label>
+                    <Select value={form.Religion} onValueChange={(value) => handleSelectChange("Religion", value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="धर्म निवडा" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="हिंदू">हिंदू</SelectItem>
+                        <SelectItem value="बौद्ध">बौद्ध</SelectItem>
+                        <SelectItem value="ख्रिश्चन">ख्रिश्चन</SelectItem>
+                        <SelectItem value="जैन">जैन</SelectItem>
+                        <SelectItem value="मुस्लिम">मुस्लिम</SelectItem>
+                        <SelectItem value="शीख">शीख</SelectItem>
+                        <SelectItem value="पारशी">पारशी (झोराष्ट्रियन)</SelectItem>
+                        <SelectItem value="इतर">इतर</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {/* Submit Button */}
+              <div className="flex justify-center pt-6">
+                <Button
+                  type="submit"
+          //        size="xl"
+           //       variant="government"
+                  disabled={isSubmitting}
+                  className="px-12 py-3 font-semibold"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent mr-2" />
+                      सबमिट करत आहे...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-5 w-5 mr-2" />
+                      सबमिट करा
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+      </div>
+    </div>
+  </Layout>
+);
+};
+
+export default SetuForm;
